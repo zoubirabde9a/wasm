@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script type="module">
+    	import { InitWebGL } from './webgl.js';
+
+	    const glCanvas = document.querySelector("#glCanvas");
+	    const gl = glCanvas.getContext("webgl");
+        
+	    if (!gl) {
+	      alert("webgl is not supported");
+	    }
+
+		class AppMemory 
+		{
+		  constructor(offset, size) 
+		  {
+		    this.offset = offset;
+		    this.size = size;
+		  }
+		};
+
+  	async function init() {
+      	var files = [];
+		var fileNames = [];
+
+		var AppMemorySize = 1024 * 1024 * 24;
+		var appTempMemory = [];
+		appTempMemory.push(new AppMemory(0, AppMemorySize));
+
+		function UpdateProgress(oEvent)
+		{
+			 var percentComplete = oEvent.loaded / oEvent.total;
+		}
+		function TransferComplete(evnt)
+		{}
+		function TransferFailed(evnt)
+		{}
+		function TransferCanceled(evnt)
+		{}
+
+		function ReadTextFile(FileName)
+		{
+			var result;
+			var rawFile = new XMLHttpRequest();
+			/*rawFile.addEventListener("progress", UpdateProgress, false);
+			rawFile.addEventListener("load", TransferComplete, false);
+			rawFile.addEventListener("error", TransferFailed, false);
+			rawFile.addEventListener("abort", TransferCanceled, false);*/
+
+			rawFile.open("GET", FileName, false);
+			rawFile.setRequestHeader('x-access-token', "token");
+			rawFile.onreadystatechange = function ()
+				{
+				    if(rawFile.readyState === 4)
+				    {
+				        if(rawFile.status === 200 || rawFile.status == 0)
+				        {
+				            result = rawFile.responseText;
+				        }
+				    }
+				}
+			rawFile.send(null);
+			return result;
+		}
+
+		function readTextFileToGlobal(file)
+		{
+			var rawFile = new XMLHttpRequest();
+			rawFile.open("GET", file, false);
+			rawFile.onreadystatechange = function ()
+				{
+				    if(rawFile.readyState === 4)
+				    {
+				        if(rawFile.status === 200 || rawFile.status == 0)
+				        {
+				            var allText = rawFile.responseText;
+				            files.push(allText);
+				            fileNames.push(file);
+				        }
+				    }
+				}
+			rawFile.send(null);
+		}	
+
+
+        function ConvertToString(ByteArray)
+        {
+        	var Result = "";
+        	for(let Index = 0; Index < ByteArray.length; Index++)
+        	{
+        		Result += String.fromCharCode(ByteArray[Index]);
+        	}
+        	return Result;
+        }
+
+
+        function ConvertAddressToString(address, size)
+        {
+        	var byteArray = ToUint8(address, size);
+			return ConvertToString(byteArray);
+        }
+
+        function JSConsoleLogString(address, size)
+        {
+			console.log(ConvertAddressToString(address, size));
+        }
+
+        function JSGetFileSize(address, size)
+        {
+
+        }
+
+        // filePath
+        function requestFileContent(filePath)
+        {
+        	var allText = "";
+			var rawFile = new XMLHttpRequest();
+			rawFile.open("GET", filePath, false);
+			rawFile.onreadystatechange = function ()
+			{
+			    if(rawFile.readyState === 4)
+			    {
+			        if(rawFile.status === 200 || rawFile.status == 0)
+			        {
+			            allText = rawFile.responseText;            
+			        }
+			    }
+			}
+			rawFile.send();
+
+			return allText;
+        }
+
+        function AllocateU8Array(index, size)
+        {
+        	var tempMemory = appTempMemory[index];
+        	console.log("offset");
+        	console.log(tempMemory.offset);
+        	var FileData = new Uint8Array(memory.buffer, tempMemory.offset, size + 4);
+        	tempMemory.offset += size + 4;
+			FileData[0] = size & 0x000000ff;
+			FileData[1] = (size >> 8) & 0x000000ff;
+			FileData[2] = (size >> 16) & 0x000000ff;
+			FileData[3] = (size >> 24) & 0x000000ff;
+
+			return FileData;
+        }
+
+		function JSReadEntireFile(address, size) 
+		{
+			console.log(address);
+			var allText = "";
+			var filePath = ConvertAddressToString(address, size);
+			console.log(size);
+			console.log(filePath);
+			var allText = requestFileContent(filePath);
+
+			var FileData = AllocateU8Array(0, allText.length);
+
+        	for(let CharacterIndex = 0; CharacterIndex < allText.length; CharacterIndex++)
+        	{
+        		FileData[CharacterIndex + 4] = allText.charCodeAt(CharacterIndex);
+        	}
+			return FileData.byteOffset;
+		}
+
+		function JSWriteEntireFile(address, size)
+		{
+
+		}
+
+		function FetchFile(FileName)
+		{
+			var myHeaders = new Headers();
+			myHeaders.append('pragma', 'no-cache');
+			myHeaders.append('cache-control', 'no-cache');
+
+			var myInit = {
+			  method: 'GET',
+			  headers: myHeaders,
+			};
+
+			var myRequest = new Request(FileName);
+
+	        return fetch(myRequest, myInit);
+		}
+
+
+		document.addEventListener('keydown', (event) => {
+		  var name = event.key;
+		  var code = event.code;
+		  // Alert the key name and key code on keydown
+		  alert(`Key pressed ${name} \r\n Key code value: ${code}`);
+		}, false);
+
+		const importObject = {
+	        env: {
+        	/*memory: new WebAssembly.Memory({
+		        initial: 256,
+		        maximum: 512,
+		    }),
+		    table: new WebAssembly.Table({
+		        initial: 0,
+		        maximum: 0,
+		        element: 'anyfunc',
+		    }),*/
+			}
+        };
+
+		InitWebGL(gl, importObject.env);
+		importObject.env["JSReadEntireFile"] = JSReadEntireFile;
+		importObject.env["ConsoleLogString"] = JSConsoleLogString;
+       
+		readTextFileToGlobal("README.txt");
+		readTextFileToGlobal("LICENSE");
+
+        const { instance } = await WebAssembly.instantiateStreaming(
+          FetchFile("app.wasm"), importObject
+        ); // here
+
+        /*const width = 600;
+        const height = 600;
+
+        const canvas = document.getElementById("demo-canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const buffer_address = instance.exports.GetBuffer();//instance.exports.BUFFER.value; // here
+        const image = new ImageData(
+            new Uint8ClampedArray(
+                instance.exports.memory.buffer, //here
+                buffer_address,
+                4 * width * height,
+            ),
+            width,
+        );*/
+
+		const {WebInit, WebRun, /*AddFile, GetFileIndex, GetFileContent, GetFileSize, ConsoleGetMessageCount, ConsoleGetMessage, ConsoleGetMessageSize, */memory } = instance.exports
+
+        function ToUint8(Address, Size)
+        {
+        	var Result = new Uint8ClampedArray(
+		            memory.buffer, //here
+		            Address,
+		            Size,
+		        );
+        	return Result;
+        }
+
+       /* function ConsolePrintAll()
+        {
+        	var Size = ConsoleGetMessageCount();
+        	for(let MessageIndex = 0; MessageIndex < Size; MessageIndex++)
+        	{
+        		var MessageAddress = ConsoleGetMessage(MessageIndex);
+        		var MessageSize = ConsoleGetMessageSize(MessageIndex);
+        		var ByteArray = ToUint8(MessageAddress, MessageSize);
+        		var MessageString = ConvertToString(ByteArray);
+        		console.log(MessageString);
+        	}
+        }*/
+
+
+		WebInit();
+		var lastRender = 0
+		function loop(timestamp) {
+		  var progress = timestamp - lastRender
+
+		  WebRun(progress);
+
+		  lastRender = timestamp
+		  window.requestAnimationFrame(loop)
+		}
+		//AppMainLoop(16);
+		window.requestAnimationFrame(loop)
+
+		console.log(files.length);
+        /*for(let FileIndex = 0; FileIndex < files.length; FileIndex++)
+        {
+        	var ThisFile = files[FileIndex];
+        	var ThisFileName = fileNames[FileIndex];
+
+        	var FileData = new Uint8Array(memory.buffer, 0, ThisFile.length);
+        	for(let CharacterIndex = 0; CharacterIndex < ThisFile.length; CharacterIndex++)
+        	{
+        		FileData[CharacterIndex] = ThisFile.charCodeAt(CharacterIndex);
+        	}
+		    AddFile(ThisFileName.byteOffset, FileData.byteOffset, FileData.length);
+		    console.log(ThisFileName, FileData);
+        }
+
+		var FileIndex = GetFileIndex("README.txt");
+		ConsolePrintAll();
+		if (FileIndex != -1)
+		{
+			var FileAdress = GetFileContent(FileIndex);
+			var FileSize = GetFileSize(FileIndex);
+
+			var clam = new Uint8ClampedArray(
+		            memory.buffer, //here
+		            FileAdress,
+		            FileSize,
+		        );
+			var str = ConvertToString(clam);
+			console.log(str);
+		}*/
+
+      }
+
+      init();
+    </script>
+  </head>
+  <body>
+   <!-- <canvas id="demo-canvas"></canvas> -->
+    <canvas id="glCanvas" width="640" height="480"></canvas>
+    <div id="dd" width="640" height="480">lol</div>
+  </body>
+</html>
